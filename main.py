@@ -9,15 +9,15 @@ from openai import OpenAI
 # ENV (Render SAFE)
 # ======================
 
-TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+TOKEN = os.getenv("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
+OPENAI_KEY = os.getenv("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")
 
 if not TOKEN:
-    print("❌ BOT_TOKEN не найден")
+    print("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
     exit()
 
 if not OPENAI_KEY:
-    print("❌ OPENAI_API_KEY не найден")
+    print("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")
     exit()
 
 bot = Bot(token=TOKEN)
