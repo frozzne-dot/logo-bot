@@ -6,18 +6,20 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from openai import OpenAI
 
 # ======================
-# ENV (Render SAFE)
+# ENV (Railway safe)
 # ======================
 
-TOKEN = os.getenv("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
-OPENAI_KEY = os.getenv("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")
+TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
+# ⚠️ НЕ ПАДАЕМ, просто лог
 if not TOKEN:
-    print("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
-    exit()
-
+    print("❌ BOT_TOKEN не найден в Railway Variables")
 if not OPENAI_KEY:
-    print("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")
+    print("❌ OPENAI_API_KEY не найден в Railway Variables")
+
+if not TOKEN or not OPENAI_KEY:
+    print("⛔ Бот не запущен: нет ENV переменных")
     exit()
 
 bot = Bot(token=TOKEN)
@@ -56,7 +58,7 @@ styles_kb = ReplyKeyboardMarkup(
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
-        "🎨 AI Logo Bot Pro\n\nВыбери действие:",
+        "🎨 AI Logo Bot (Railway)\n\nВыбери действие:",
         reply_markup=main_kb
     )
 
@@ -79,27 +81,28 @@ async def set_style(message: Message):
     await message.answer(f"✅ Стиль: {message.text}")
 
 # ======================
-# IDEA INPUT
+# ASK IDEA
 # ======================
 @dp.message(F.text == "✨ Generate Logo")
 async def ask_idea(message: Message):
     await message.answer("💡 Напиши идею логотипа")
 
 # ======================
-# GENERATE IMAGE
+# GENERATE LOGO
 # ======================
 @dp.message(F.text)
 async def generate(message: Message):
-    style = user_style.get(message.from_user.id, "Minimalism")
-
-    prompt = (
-        f"Modern logo, style {style}, idea: {message.text}, "
-        "clean vector branding, high quality, minimal, 8k"
-    )
-
-    await message.answer("🎨 Генерация...")
-
     try:
+        style = user_style.get(message.from_user.id, "Minimalism")
+
+        prompt = (
+            f"Modern professional logo, style {style}, "
+            f"idea: {message.text}, "
+            "clean vector logo, minimal, high quality, 8k"
+        )
+
+        await message.answer("🎨 Генерация логотипа...")
+
         result = client.images.generate(
             model="gpt-image-1",
             prompt=prompt,
@@ -110,18 +113,23 @@ async def generate(message: Message):
 
         await message.answer_photo(
             photo=image_url,
-            caption=f"🎨 Style: {style}"
+            caption=f"🎨 Готово!\nStyle: {style}"
         )
 
     except Exception as e:
-        await message.answer(f"❌ Ошибка:\n{e}")
+        await message.answer("⚠️ Ошибка генерации, попробуй ещё раз")
+        print("ERROR:", e)
 
 # ======================
-# START BOT
+# RUN BOT (Railway safe)
 # ======================
 async def main():
-    print("🚀 Bot started")
-    await dp.start_polling(bot)
+    print("🚀 Bot started on Railway")
+
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        print("FATAL ERROR:", e)
 
 if __name__ == "__main__":
     asyncio.run(main())
