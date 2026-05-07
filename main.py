@@ -3,21 +3,22 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from dotenv import load_dotenv
 from openai import OpenAI
 
 # ======================
-# ENV
+# ENV (Render SAFE)
 # ======================
-load_dotenv()
 
-TOKEN = os.getenv("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
-OPENAI_KEY = os.getenv("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")
+TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 
 if not TOKEN:
-    raise ValueError("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
+    print("❌ BOT_TOKEN не найден")
+    exit()
+
 if not OPENAI_KEY:
-    raise ValueError("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")
+    print("❌ OPENAI_API_KEY не найден")
+    exit()
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -55,13 +56,12 @@ styles_kb = ReplyKeyboardMarkup(
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
-        "🎨 AI Logo Bot Pro\n\n"
-        "Выбери действие:",
+        "🎨 AI Logo Bot Pro\n\nВыбери действие:",
         reply_markup=main_kb
     )
 
 # ======================
-# STYLES MENU
+# STYLES
 # ======================
 @dp.message(F.text == "🎨 Styles")
 async def styles(message: Message):
@@ -76,17 +76,14 @@ async def styles(message: Message):
 ]))
 async def set_style(message: Message):
     user_style[message.from_user.id] = message.text
-    await message.answer(
-        f"✅ Стиль выбран: {message.text}\n"
-        "Теперь нажми ✨ Generate Logo и напиши идею"
-    )
+    await message.answer(f"✅ Стиль: {message.text}")
 
 # ======================
-# ASK IDEA
+# IDEA INPUT
 # ======================
 @dp.message(F.text == "✨ Generate Logo")
 async def ask_idea(message: Message):
-    await message.answer("💡 Напиши идею логотипа (например: Nike gaming logo)")
+    await message.answer("💡 Напиши идею логотипа")
 
 # ======================
 # GENERATE IMAGE
@@ -96,13 +93,11 @@ async def generate(message: Message):
     style = user_style.get(message.from_user.id, "Minimalism")
 
     prompt = (
-        f"Modern professional logo design, style: {style}, "
-        f"idea: {message.text}, "
-        "vector logo, clean branding, minimal details, "
-        "ultra high quality, 8k, studio lighting"
+        f"Modern logo, style {style}, idea: {message.text}, "
+        "clean vector branding, high quality, minimal, 8k"
     )
 
-    await message.answer("🎨 Генерирую логотип...")
+    await message.answer("🎨 Генерация...")
 
     try:
         result = client.images.generate(
@@ -115,14 +110,14 @@ async def generate(message: Message):
 
         await message.answer_photo(
             photo=image_url,
-            caption=f"🎨 Logo ready!\nStyle: {style}"
+            caption=f"🎨 Style: {style}"
         )
 
     except Exception as e:
-        await message.answer(f"❌ Ошибка генерации:\n{e}")
+        await message.answer(f"❌ Ошибка:\n{e}")
 
 # ======================
-# RUN BOT
+# START BOT
 # ======================
 async def main():
     print("🚀 Bot started")
