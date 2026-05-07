@@ -15,9 +15,9 @@ TOKEN = os.getenv("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
 OPENAI_KEY = os.getenv("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")
 
 if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден")
+    raise ValueError("8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY")
 if not OPENAI_KEY:
-    raise ValueError("❌ OPENAI_API_KEY не найден")
+    raise ValueError("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")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
