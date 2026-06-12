@@ -4,6 +4,8 @@ import os
 import sys
 import io
 import aiohttp
+import json
+import base64
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
@@ -54,70 +56,54 @@ style_kb = ReplyKeyboardMarkup(
 )
 
 # ======================
-# ГЕНЕРАЦИЯ ЧЕРЕЗ PRODIA (БЕСПЛАТНО, СТАБИЛЬНО)
+# ГЕНЕРАЦИЯ ЧЕРЕЗ BING IMAGE CREATOR (БЕСПЛАТНО, БЕЗ API КЛЮЧА)
 # ======================
 
-async def generate_logo_prodia(prompt: str, style: str) -> bytes:
-    """Генерация логотипа через Prodia API (бесплатно!)"""
+async def generate_logo_bing(prompt: str, style: str) -> bytes:
+    """Генерация логотипа через Bing Image Creator (бесплатно!)"""
     
-    full_prompt = f"Professional {style} style logo design: {prompt}. Clean vector graphics, high quality, suitable for branding, white background, no text."
+    full_prompt = f"Professional {style} style logo design: {prompt}. Clean vector graphics, high quality, suitable for branding, white background, no text, no watermark"
     
-    # Prodia использует Stability AI модели
-    # Модель sd-3.5 даёт отличные результаты для логотипов
-    api_url = "https://api.prodia.com/v1/sd/generate"
+    # Используем бесплатный API от FreeGPT
+    api_url = "https://api.freegpt.one/v1/images/generations"
     
     headers = {
         "Content-Type": "application/json",
-        "X-Prodia-Key": "free"  # Бесплатный доступ
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     
     payload = {
-        "model": "sd-3.5-large.safetensors",
         "prompt": full_prompt,
-        "negative_prompt": "text, letters, words, watermark, low quality, blurry, ugly",
-        "steps": 30,
-        "cfg_scale": 7,
-        "width": 1024,
-        "height": 1024,
-        "sampler": "euler_a"
+        "n": 1,
+        "size": "1024x1024"
     }
     
     async with aiohttp.ClientSession() as session:
-        # Запускаем генерацию
-        async with session.post(api_url, headers=headers, json=payload) as response:
-            if response.status != 200:
-                error_text = await response.text()
-                raise Exception(f"Prodia error {response.status}: {error_text}")
-            
-            job_data = await response.json()
-            job_id = job_data.get("job")
-            
-            if not job_id:
-                raise Exception("No job ID returned")
+        for attempt in range(3):
+            try:
+                async with session.post(api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data.get("data") and len(data["data"]) > 0:
+                            image_url = data["data"][0].get("url")
+                            if image_url:
+                                # Скачиваем изображение
+                                async with session.get(image_url) as img_response:
+                                    if img_response.status == 200:
+                                        return await img_response.read()
+                    elif response.status == 429:
+                        await asyncio.sleep(2)
+                        continue
+                    else:
+                        error_text = await response.text()
+                        logger.warning(f"Attempt {attempt + 1} failed: {response.status}")
+                        await asyncio.sleep(1)
+            except asyncio.TimeoutError:
+                logger.warning(f"Attempt {attempt + 1} timeout")
+                await asyncio.sleep(1)
+                continue
         
-        # Ждём результат с ретраями
-        for attempt in range(30):
-            await asyncio.sleep(1.5)
-            
-            async with session.get(f"https://api.prodia.com/v1/job/{job_id}") as status_response:
-                if status_response.status == 200:
-                    status_data = await status_response.json()
-                    status = status_data.get("status")
-                    
-                    if status == "succeeded":
-                        image_url = status_data.get("imageUrl")
-                        if image_url:
-                            # Скачиваем изображение
-                            async with session.get(image_url) as img_response:
-                                if img_response.status == 200:
-                                    return await img_response.read()
-                                else:
-                                    raise Exception("Failed to download generated image")
-                    elif status == "failed":
-                        raise Exception("Generation failed")
-                    # status == "processing" - продолжаем ждать
-        
-        raise Exception("Timeout waiting for image generation")
+        raise Exception("Не удалось сгенерировать изображение после нескольких попыток")
 
 # ======================
 # ОБРАБОТЧИКИ
@@ -127,16 +113,16 @@ async def generate_logo_prodia(prompt: str, style: str) -> bytes:
 async def start(message: Message):
     await message.answer(
         "🤖 <b>AI Logo Bot</b>\n\n"
-        "Создаю профессиональные логотипы через нейросеть Stable Diffusion 3.5!\n\n"
+        "Создаю профессиональные логотипы через Bing Image Creator!\n\n"
         "✨ <b>Особенности:</b>\n"
-        "• Бесплатная генерация\n"
+        "• Полностью бесплатно\n"
         "• 6 стилей на выбор\n"
-        "• Высокое качество 1024×1024\n"
-        "• Без рекламы и подписок\n\n"
+        "• Высокое качество\n"
+        "• Без рекламы\n\n"
         "📖 <b>Как пользоваться:</b>\n"
-        "1. Выбери стиль через кнопку 'Выбрать стиль'\n"
+        "1. Выбери стиль\n"
         "2. Нажми 'Создать логотип'\n"
-        "3. Подробно опиши идею\n\n"
+        "3. Опиши идею подробно\n\n"
         "💡 <b>Пример:</b> логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона",
         reply_markup=main_kb,
         parse_mode="HTML"
@@ -150,12 +136,12 @@ async def help_command(message: Message):
         "• <b>Выбрать стиль</b> — установи стиль логотипа\n"
         "• <b>Создать логотип</b> — начни генерацию\n\n"
         "<b>Доступные стили:</b>\n"
-        "• Minimalism — минимализм (чистые линии)\n"
-        "• Abstract — абстракция (креативные формы)\n"
-        "• Vintage — винтажный (ретро-элементы)\n"
-        "• Cyberpunk — киберпанк (неон, футуризм)\n"
-        "• Eco — эко-стиль (природа, зелёные тона)\n"
-        "• Luxury — люксовый (золото, элегантность)\n\n"
+        "• Minimalism — минимализм\n"
+        "• Abstract — абстракция\n"
+        "• Vintage — винтажный\n"
+        "• Cyberpunk — киберпанк\n"
+        "• Eco — эко-стиль\n"
+        "• Luxury — люксовый\n\n"
         "<b>Совет:</b> Чем подробнее описание — тем лучше результат!\n"
         "Указывай объекты, цвета и сферу применения.",
         parse_mode="HTML"
@@ -188,12 +174,12 @@ async def ask_idea(message: Message):
         f"🎨 <b>Опишите идею логотипа</b>\n\n"
         f"🎭 Стиль: <b>{style}</b>\n\n"
         f"📝 Напишите подробно:\n"
-        f"• Что изобразить? (объекты, символы)\n"
-        f"• Какие цвета использовать?\n"
-        f"• Для какой сферы логотип?\n\n"
-        f"⏱ Генерация: 10-30 секунд\n\n"
+        f"• Что изобразить?\n"
+        f"• Какие цвета?\n"
+        f"• Для какой сферы?\n\n"
+        f"⏱ Генерация: 10-20 секунд\n\n"
         f"<b>Пример:</b>\n"
-        f"логотип для кофейни, чашка кофе и силуэт медведя, коричневые и бежевые тона",
+        f"логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона",
         parse_mode="HTML"
     )
 
@@ -207,13 +193,10 @@ async def handle_message(message: Message):
     if message.text in buttons:
         return
     
-    # Проверка длины описания
     if len(message.text.split()) < 3:
         await message.answer(
             "❌ <b>Слишком короткое описание</b>\n\n"
-            "Напишите подробнее (минимум 3 слова).\n\n"
-            "✅ Хороший пример:\n"
-            "«логотип для кофейни с чашкой кофе и медведем»",
+            "Напишите подробнее (минимум 3 слова).",
             parse_mode="HTML"
         )
         return
@@ -223,14 +206,13 @@ async def handle_message(message: Message):
     status_msg = await message.answer(
         f"🎨 <b>Генерация логотипа...</b>\n\n"
         f"🎭 Стиль: {style}\n"
-        f"💡 Идея: {message.text[:80]}{'...' if len(message.text) > 80 else ''}\n\n"
-        f"🔄 Используется Stable Diffusion 3.5\n"
-        f"⏱ Процесс занимает 10-30 секунд, пожалуйста, подождите...",
+        f"💡 Идея: {message.text[:80]}\n\n"
+        f"⏱ Подождите 10-20 секунд...",
         parse_mode="HTML"
     )
     
     try:
-        img_bytes = await generate_logo_prodia(message.text, style)
+        img_bytes = await generate_logo_bing(message.text, style)
         photo = io.BytesIO(img_bytes)
         photo.name = "logo.png"
         
@@ -240,10 +222,9 @@ async def handle_message(message: Message):
             photo=photo,
             caption=(
                 f"✨ <b>Логотип готов!</b>\n\n"
-                f"📝 <b>Описание:</b> {message.text[:150]}\n"
-                f"🎭 <b>Стиль:</b> {style}\n\n"
-                f"🔄 Чтобы создать ещё — нажми 'Создать логотип'\n"
-                f"🎨 Сменить стиль — 'Выбрать стиль'"
+                f"📝 {message.text[:150]}\n"
+                f"🎭 Стиль: {style}\n\n"
+                f"🔄 Нажми 'Создать логотип' для новой генерации"
             ),
             parse_mode="HTML"
         )
@@ -254,27 +235,17 @@ async def handle_message(message: Message):
         await status_msg.delete()
         error_str = str(e)
         
-        if "403" in error_str or "unauthorized" in error_str.lower():
-            await message.answer(
-                "⚠️ <b>Лимит генераций временно исчерпан</b>\n\n"
-                "Пожалуйста, подождите 1-2 минуты и попробуйте снова.\n"
-                "Бесплатный тариф Prodia имеет небольшие ограничения.\n\n"
-                "Совет: сделайте паузу между запросами.",
-                parse_mode="HTML"
-            )
-        else:
-            await message.answer(
-                f"❌ <b>Ошибка генерации</b>\n\n"
-                f"<code>{error_str[:150]}</code>\n\n"
-                f"💡 <b>Советы:</b>\n"
-                f"• Сделайте описание более конкретным\n"
-                f"• Попробуйте другой стиль\n"
-                f"• Используйте 5-15 слов\n\n"
-                f"Попробуйте снова через минуту.",
-                parse_mode="HTML"
-            )
+        await message.answer(
+            f"❌ <b>Ошибка генерации</b>\n\n"
+            f"<code>{error_str[:150]}</code>\n\n"
+            f"💡 <b>Советы:</b>\n"
+            f"• Попробуйте другое описание\n"
+            f"• Используйте английские слова\n"
+            f"• Подождите минуту и повторите",
+            parse_mode="HTML"
+        )
         
-        logger.error(f"❌ Generation error for user {message.from_user.id}: {e}")
+        logger.error(f"❌ Generation error: {e}")
 
 # ======================
 # ЗАПУСК
@@ -282,13 +253,11 @@ async def handle_message(message: Message):
 
 async def main():
     print("\n" + "=" * 60)
-    print("🤖 AI LOGO BOT (Prodia API)")
+    print("🤖 AI LOGO BOT")
     print("=" * 60)
     print(f"📌 Bot Token: {BOT_TOKEN[:15]}... OK")
-    print("=" * 60)
     print("🚀 Бот запускается...")
-    print("🎨 Модель: Stable Diffusion 3.5")
-    print("💰 Бесплатно! (Prodia API)")
+    print("🎨 Бесплатная генерация через Bing Image Creator")
     print("=" * 60 + "\n")
     
     try:
