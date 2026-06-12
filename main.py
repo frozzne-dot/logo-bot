@@ -4,7 +4,6 @@ import os
 import sys
 import io
 import aiohttp
-import urllib.parse
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
@@ -22,13 +21,10 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
-    logger.error("=" * 60)
-    logger.error("❌ ОТСУТСТВУЕТ ОБЯЗАТЕЛЬНАЯ ПЕРЕМЕННАЯ BOT_TOKEN")
-    logger.error("📌 Добавьте BOT_TOKEN в Railway Variables")
-    logger.error("=" * 60)
+    logger.error("❌ BOT_TOKEN не найден!")
     sys.exit(1)
 
-logger.info("✅ BOT_TOKEN загружен успешно")
+logger.info("✅ BOT_TOKEN загружен")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -42,7 +38,6 @@ main_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🎨 Создать логотип")],
         [KeyboardButton(text="🎭 Выбрать стиль")],
-        [KeyboardButton(text="💬 Чат с AI")],
         [KeyboardButton(text="ℹ️ Помощь")]
     ],
     resize_keyboard=True
@@ -59,46 +54,30 @@ style_kb = ReplyKeyboardMarkup(
 )
 
 # ======================
-# ФУНКЦИЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ
+# ГЕНЕРАЦИЯ ЧЕРЕЗ HUGGING FACE (БЕСПЛАТНО)
 # ======================
 
-async def generate_logo_image(prompt: str, style: str) -> bytes:
-    """Генерация логотипа через бесплатный API"""
+async def generate_logo(prompt: str, style: str) -> bytes:
+    """Генерация логотипа через Hugging Face FLUX модель"""
     
-    full_prompt = (
-        f"Professional {style} style logo design: {prompt}. "
-        f"Clean vector graphics, high quality, suitable for branding, "
-        f"white background, no text."
-    )
-    encoded_prompt = urllib.parse.quote(full_prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux"
+    full_prompt = f"Professional {style} style logo: {prompt}. Clean vector, white background, no text"
+    
+    # Hugging Face Inference API - бесплатно
+    API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
     
     async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as response:
+        async with session.post(
+            API_URL,
+            headers={"Content-Type": "application/json"},
+            json={"inputs": full_prompt},
+            timeout=aiohttp.ClientTimeout(total=60)
+        ) as response:
             if response.status == 200:
                 return await response.read()
+            elif response.status == 503:
+                raise Exception("Модель загружается, попробуйте через 5 секунд")
             else:
                 raise Exception(f"Ошибка {response.status}")
-
-# ======================
-# ПРОСТОЙ БЕСПЛАТНЫЙ ЧАТ
-# ======================
-
-async def simple_chat(message_text: str) -> str:
-    """Простой чат-бот без API ключей"""
-    
-    text_lower = message_text.lower()
-    
-    if any(w in text_lower for w in ["привет", "здравствуй", "hi"]):
-        return "👋 Привет! Я бот для создания логотипов. Нажми 'Создать логотип' и опиши идею!"
-    elif any(w in text_lower for w in ["как дела", "как ты"]):
-        return "У меня всё отлично! Готов создавать логотипы. А у тебя как?"
-    elif any(w in text_lower for w in ["спасибо", "thanks"]):
-        return "Пожалуйста! Рад помочь 😊"
-    elif any(w in text_lower for w in ["логотип", "создай"]):
-        return "Чтобы создать логотип: выбери стиль → нажми 'Создать логотип' → подробно опиши идею (цвета, объекты, сферу)."
-    else:
-        return f"Я понял: «{message_text[:100]}»\n\nЧтобы создать логотип: выбери стиль через кнопку 'Выбрать стиль', затем нажми 'Создать логотип' и опиши идею."
 
 # ======================
 # ОБРАБОТЧИКИ
@@ -108,41 +87,27 @@ async def simple_chat(message_text: str) -> str:
 async def start(message: Message):
     await message.answer(
         "🤖 <b>AI Logo Bot</b>\n\n"
-        "Я создаю профессиональные логотипы БЕСПЛАТНО!\n\n"
-        "✨ <b>Особенности:</b>\n"
-        "• Нейросеть Flux\n"
-        "• 6 стилей на выбор\n"
-        "• Абсолютно бесплатно\n"
-        "• Без рекламы и подписок\n\n"
+        "Создаю логотипы через нейросеть FLUX (Hugging Face)!\n\n"
         "📖 <b>Как пользоваться:</b>\n"
         "1. Выбери стиль\n"
         "2. Нажми 'Создать логотип'\n"
-        "3. Опиши идею подробно\n\n"
+        "3. Опиши идею\n\n"
         "💡 <b>Пример:</b> логотип для кофейни с чашкой кофе",
         reply_markup=main_kb,
         parse_mode="HTML"
     )
-    logger.info(f"User {message.from_user.id} started")
 
 @dp.message(F.text == "ℹ️ Помощь")
 async def help_command(message: Message):
     await message.answer(
         "📖 <b>Инструкция</b>\n\n"
-        "• <b>Создать логотип</b> — генерация логотипа\n"
-        "• <b>Выбрать стиль</b> — установите стиль\n"
-        "• <b>Чат с AI</b> — просто поболтать\n\n"
-        "<b>Стили:</b>\n"
-        "Minimalism, Abstract, Vintage, Cyberpunk, Eco, Luxury\n\n"
-        "💡 <b>Совет:</b> Чем подробнее описание, тем лучше результат!",
-        parse_mode="HTML"
-    )
-
-@dp.message(F.text == "💬 Чат с AI")
-async def chat_mode(message: Message):
-    await message.answer(
-        "💬 <b>Режим чата</b>\n\n"
-        "Просто напиши сообщение, и я отвечу.\n\n"
-        "Чтобы вернуться к логотипам — нажми '🎨 Создать логотип'",
+        "• Выбери стиль (Minimalism, Luxury и др.)\n"
+        "• Нажми 'Создать логотип'\n"
+        "• Подробно опиши идею (цвета, объекты, сфера)\n\n"
+        "✅ Хороший пример:\n"
+        "логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона\n\n"
+        "❌ Плохой пример:\n"
+        "сделай красивый логотип",
         parse_mode="HTML"
     )
 
@@ -171,12 +136,9 @@ async def ask_idea(message: Message):
     await message.answer(
         f"🎨 <b>Опишите идею логотипа</b>\n\n"
         f"🎭 Стиль: <b>{style}</b>\n\n"
-        f"📝 Напишите подробно:\n"
-        f"• Что изобразить?\n"
-        f"• Какие цвета?\n"
-        f"• Для какой сферы?\n\n"
-        f"⏱ Генерация: 5-10 секунд\n\n"
-        f"<b>Пример:</b> логотип для кофейни, чашка кофе и медведь, коричневые тона",
+        f"📝 Напишите подробно: что изобразить, какие цвета, для какой сферы\n\n"
+        f"⏱ Генерация: 10-20 секунд\n\n"
+        f"<b>Пример:</b> логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона",
         parse_mode="HTML"
     )
 
@@ -185,34 +147,21 @@ async def handle_message(message: Message):
     if message.text.startswith('/'):
         return
     
-    buttons = ["🎨 Создать логотип", "🎭 Выбрать стиль", "ℹ️ Помощь", 
-               "🔙 Назад", "Minimalism", "Abstract", "Vintage", 
-               "Cyberpunk", "Eco", "Luxury", "💬 Чат с AI"]
+    buttons = ["🎨 Создать логотип", "🎭 Выбрать стиль", "ℹ️ Помощь", "🔙 Назад",
+               "Minimalism", "Abstract", "Vintage", "Cyberpunk", "Eco", "Luxury"]
     if message.text in buttons:
+        return
+    
+    if len(message.text.split()) < 3:
+        await message.answer("❌ Слишком короткое описание. Напишите подробнее (3+ слов).", parse_mode="HTML")
         return
     
     style = user_style.get(message.from_user.id, "Minimalism")
     
-    logo_keywords = ["логотип", "бренд", "компания", "магазин", "кофейня", "спорт"]
-    is_logo = any(kw in message.text.lower() for kw in logo_keywords) and len(message.text.split()) > 3
-    
-    if is_logo:
-        await generate_logo(message, style)
-    else:
-        reply = await simple_chat(message.text)
-        await message.answer(reply, parse_mode="HTML")
-
-async def generate_logo(message: Message, style: str):
-    status = await message.answer(
-        f"🎨 <b>Генерация логотипа...</b>\n\n"
-        f"🎭 Стиль: {style}\n"
-        f"💡 Идея: {message.text[:80]}\n\n"
-        f"⏱ Подождите 5-10 секунд",
-        parse_mode="HTML"
-    )
+    status = await message.answer(f"🎨 Генерация логотипа...\n\nСтиль: {style}\n⏱ Подождите 10-20 секунд", parse_mode="HTML")
     
     try:
-        img_bytes = await generate_logo_image(message.text, style)
+        img_bytes = await generate_logo(message.text, style)
         photo = io.BytesIO(img_bytes)
         photo.name = "logo.png"
         
@@ -226,46 +175,30 @@ async def generate_logo(message: Message, style: str):
         
     except Exception as e:
         await status.delete()
-        await message.answer(
-            f"❌ <b>Ошибка</b>\n\n{str(e)[:150]}\n\nПопробуйте другое описание.",
-            parse_mode="HTML"
-        )
+        error = str(e)
+        if "503" in error:
+            await message.answer("⏳ Модель загружается, попробуйте ещё раз через 10 секунд", parse_mode="HTML")
+        else:
+            await message.answer(f"❌ Ошибка: {error[:100]}\n\nПопробуйте другое описание.", parse_mode="HTML")
         logger.error(f"Error: {e}")
 
 # ======================
-# ЗАПУСК (с защитой от конфликтов)
+# ЗАПУСК
 # ======================
 
 async def main():
     print("\n" + "=" * 50)
-    print("🤖 LOGO BOT (Бесплатный)")
+    print("🤖 LOGO BOT (Hugging Face FLUX)")
     print("=" * 50)
     print(f"📌 Bot Token: {BOT_TOKEN[:10]}...")
-    print("🚀 Бот запущен! Без рекламы, без ключей.")
+    print("🚀 Бот запущен!")
     print("=" * 50 + "\n")
     
     try:
-        # Очищаем вебхук и сбрасываем все ожидающие обновления
         await bot.delete_webhook(drop_pending_updates=True)
-        
-        # Дополнительная очистка: пропускаем все старые обновления
-        updates = await bot.get_updates(offset=-1, timeout=1)
-        if updates:
-            last_id = updates[-1].update_id
-            await bot.get_updates(offset=last_id + 1)
-            logger.info(f"Dropped {len(updates)} pending updates")
-        
-        logger.info("Webhook cleared, starting polling...")
-        await dp.start_polling(bot, handle_signals=True)
-        
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        raise
+        await dp.start_polling(bot)
     finally:
         await bot.session.close()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n👋 Бот остановлен")
+    asyncio.run(main())
