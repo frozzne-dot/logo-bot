@@ -17,14 +17,14 @@ logger = logging.getLogger(__name__)
 # ======================
 
 BOT_TOKEN = "8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY"
-GEMINI_API_KEY = "AIzaSy..."  # ВСТАВЬТЕ ВАШ КЛЮЧ ОТ GOOGLE AI STUDIO
+GEMINI_API_KEY = "AQ.Ab8RN6KLRiXKpZxzJl8pxtZ-Rr9wBYIuSdckxDvsig3LvRRhRg"  # ВСТАВЬТЕ ВАШ КЛЮЧ ОТ GOOGLE AI STUDIO
 
 # Проверка наличия ключей
 if not BOT_TOKEN:
     logger.error("❌ Укажите правильный BOT_TOKEN")
     exit(1)
 
-if not GEMINI_API_KEY or GEMINI_API_KEY == "AIzaSy...":
+if not GEMINI_API_KEY or GEMINI_API_KEY == "AQ.Ab8RN6KLRiXKpZxzJl8pxtZ-Rr9wBYIuSdckxDvsig3LvRRhRg":
     logger.error("❌ Укажите правильный GEMINI_API_KEY")
     logger.error("📌 Получите ключ на https://aistudio.google.com")
     exit(1)
