@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN")
 
 # Проверка наличия переменных
 missing_vars = []
@@ -34,6 +35,8 @@ if not BOT_TOKEN:
     missing_vars.append("BOT_TOKEN")
 if not DEEPSEEK_API_KEY:
     missing_vars.append("DEEPSEEK_API_KEY")
+if not HUGGINGFACE_TOKEN:
+    missing_vars.append("HUGGINGFACE_TOKEN")
 
 if missing_vars:
     logger.error("=" * 60)
@@ -41,22 +44,23 @@ if missing_vars:
     for var in missing_vars:
         logger.error(f"   • {var}")
     logger.error("")
+    logger.error("📌 КАК ПОЛУЧИТЬ HUGGING FACE ТОКЕН:")
+    logger.error("   1. Перейдите на https://huggingface.co/join")
+    logger.error("   2. Зарегистрируйтесь")
+    logger.error("   3. Settings → Access Tokens → New token (роль 'read')")
+    logger.error("   4. Скопируйте токен")
+    logger.error("")
     logger.error("📌 КАК ПОЛУЧИТЬ DEEPSEEK API КЛЮЧ:")
     logger.error("   1. Перейдите на https://platform.deepseek.com/")
     logger.error("   2. Зарегистрируйтесь (дадут 4 млн токенов бесплатно)")
-    logger.error("   3. В разделе 'API Keys' создайте новый ключ")
-    logger.error("   4. Скопируйте ключ (начинается с 'sk-...')")
-    logger.error("")
-    logger.error("📌 КАК ДОБАВИТЬ НА RAILWAY:")
-    logger.error("   → Проект → сервис → Variables → Добавить:")
-    logger.error("     • Key: BOT_TOKEN → Value: ваш токен")
-    logger.error("     • Key: DEEPSEEK_API_KEY → Value: ваш DeepSeek ключ")
+    logger.error("   3. API Keys → Create new API key")
     logger.error("=" * 60)
     sys.exit(1)
 
 logger.info("✅ Переменные окружения загружены успешно")
 logger.info(f"   BOT_TOKEN: {BOT_TOKEN[:10]}...")
 logger.info(f"   DEEPSEEK_API_KEY: {DEEPSEEK_API_KEY[:15]}...")
+logger.info(f"   HUGGINGFACE_TOKEN: {HUGGINGFACE_TOKEN[:15]}...")
 
 # ======================
 # ИНИЦИАЛИЗАЦИЯ DEEPSEEK
@@ -69,7 +73,7 @@ try:
     )
     
     logger.info("✅ DeepSeek API initialized successfully")
-    logger.info("   Модель: deepseek-v4-flash")
+    logger.info("   Модель: deepseek-chat")
     logger.info("   Лимит: 4M токенов бесплатно")
     
 except Exception as e:
@@ -112,7 +116,70 @@ style_kb = ReplyKeyboardMarkup(
 )
 
 # ======================
-# ФУНКЦИИ
+# ФУНКЦИЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ (Hugging Face)
+# ======================
+
+async def generate_logo_image(prompt: str, style: str) -> bytes:
+    """Генерация логотипа через Hugging Face FLUX.1 модель (бесплатно!)"""
+    
+    # Формируем улучшенный промпт для логотипа
+    full_prompt = (
+        f"Professional {style} style logo design: {prompt}. "
+        f"Clean vector graphics, high quality, suitable for branding, "
+        f"white background, no text, simple and memorable."
+    )
+    
+    # Используем FLUX.1-schnell от Black Forest Labs (быстрая и качественная)
+    API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    
+    headers = {
+        "Authorization": f"Bearer {HUGGINGFACE_TOKEN}"
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(3):  # 3 попытки при ошибке
+            try:
+                async with session.post(
+                    API_URL,
+                    headers=headers,
+                    json={"inputs": full_prompt},
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    
+                    if response.status == 200:
+                        image_data = await response.read()
+                        if len(image_data) > 1000:  # Проверка что это изображение
+                            logger.info(f"✅ Image generated: {len(image_data)} bytes")
+                            return image_data
+                        else:
+                            raise Exception("Получен пустой ответ от API")
+                    
+                    elif response.status == 503:
+                        # Модель загружается, ждем
+                        error_data = await response.json()
+                        if "estimated_time" in error_data:
+                            wait_time = error_data["estimated_time"]
+                            logger.warning(f"Модель загружается, ждем {wait_time} секунд")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            await asyncio.sleep(5)
+                            continue
+                    
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Ошибка API {response.status}: {error_text}")
+                        
+            except asyncio.TimeoutError:
+                if attempt == 2:
+                    raise Exception("Таймаут генерации, попробуйте позже")
+                await asyncio.sleep(2)
+                continue
+                
+    raise Exception("Не удалось сгенерировать изображение после нескольких попыток")
+
+# ======================
+# ФУНКЦИЯ ЧАТА С DEEPSEEK
 # ======================
 
 async def chat_with_deepseek(user_id: int, message: str) -> str:
@@ -123,6 +190,7 @@ async def chat_with_deepseek(user_id: int, message: str) -> str:
     
     user_history[user_id].append({"role": "user", "content": message})
     
+    # Ограничиваем историю последними 10 сообщениями
     if len(user_history[user_id]) > 10:
         user_history[user_id] = user_history[user_id][-10:]
     
@@ -131,7 +199,7 @@ async def chat_with_deepseek(user_id: int, message: str) -> str:
         response = await loop.run_in_executor(
             None,
             lambda: client.chat.completions.create(
-                model="deepseek-v4-flash",
+                model="deepseek-chat",
                 messages=user_history[user_id],
                 max_tokens=500,
                 temperature=0.7,
@@ -148,35 +216,20 @@ async def chat_with_deepseek(user_id: int, message: str) -> str:
         logger.error(f"Chat error: {e}")
         return "Извините, произошла ошибка. Попробуйте позже."
 
-async def generate_logo_image(prompt: str, style: str) -> bytes:
-    """Генерация логотипа через Pollinations.ai"""
-    
-    full_prompt = f"Professional {style} style logo design: {prompt}. Clean vector graphics, high quality, suitable for branding, white background, no text."
-    encoded_prompt = urllib.parse.quote(full_prompt)
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux"
-    
-    async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as response:
-            if response.status == 200:
-                return await response.read()
-            else:
-                raise Exception(f"Image generation failed: {response.status}")
-
 # ======================
-# НИКАКИХ ПРОВЕРОК ПОДПИСКИ! БОТ РАБОТАЕТ СРАЗУ
+# ОБРАБОТЧИКИ КОМАНД
 # ======================
 
 @dp.message(Command("start"))
 async def start(message: Message):
     await message.answer(
-        "🤖 <b>AI Logo Bot (DeepSeek)</b>\n\n"
-        "Я использую мощь DeepSeek AI для создания логотипов и общения!\n\n"
+        "🤖 <b>AI Logo Bot (DeepSeek + Hugging Face)</b>\n\n"
+        "Я создаю профессиональные логотипы и общаюсь с помощью ИИ!\n\n"
         "✨ <b>Особенности:</b>\n"
-        "• Нейросеть DeepSeek-V4\n"
-        "• 4 млн токенов бесплатно\n"
-        "• Генерация логотипов (6 стилей)\n"
-        "• Интеллектуальный чат с AI\n"
-        "• Высокая скорость ответа\n\n"
+        "• Чат на базе DeepSeek AI\n"
+        "• Генерация логотипов через FLUX (Hugging Face)\n"
+        "• 6 стилей на выбор\n"
+        "• Полностью бесплатно\n\n"
         "📖 <b>Как пользоваться:</b>\n"
         "1. Выберите стиль логотипа\n"
         "2. Нажмите 'Создать логотип' и опишите идею\n"
@@ -195,12 +248,18 @@ async def help_command(message: Message):
         "• <b>Создать логотип</b> — генерация логотипа\n"
         "• <b>Выбрать стиль</b> — установите стиль\n"
         "• <b>Чат с AI</b> — переключиться в режим диалога\n\n"
-        "<b>Стили:</b>\n"
-        "Minimalism, Abstract, Vintage, Cyberpunk, Eco, Luxury\n\n"
+        "<b>Доступные стили:</b>\n"
+        "• Minimalism — минимализм\n"
+        "• Abstract — абстракция\n"
+        "• Vintage — винтажный\n"
+        "• Cyberpunk — киберпанк\n"
+        "• Eco — эко-стиль\n"
+        "• Luxury — люксовый\n\n"
         "<b>💬 Режим чата:</b>\n"
-        "Просто отправьте любое сообщение — бот ответит.\n\n"
+        "Просто отправьте любое сообщение — бот ответит\n\n"
         "<b>💰 Бесплатно:</b>\n"
-        "4 млн токенов DeepSeek при регистрации"
+        "• DeepSeek — 4 млн токенов при регистрации\n"
+        "• Hugging Face — неограниченно"
     )
     await message.answer(help_text, parse_mode="HTML")
 
@@ -209,6 +268,11 @@ async def chat_mode(message: Message):
     await message.answer(
         "💬 <b>Режим чата активирован</b>\n\n"
         "Просто пишите мне сообщения, и я буду отвечать.\n\n"
+        "Что я умею:\n"
+        "• Отвечать на вопросы\n"
+        "• Писать код\n"
+        "• Объяснять концепции\n"
+        "• Переводить текст\n\n"
         "Чтобы вернуться к логотипам — нажмите '🎨 Создать логотип'",
         parse_mode="HTML",
         reply_markup=main_kb
@@ -220,7 +284,7 @@ async def choose_style(message: Message):
     current_text = f"\n\nТекущий стиль: <b>{current_style}</b>" if current_style else ""
     
     await message.answer(
-        f"🎭 <b>Выберите стиль:</b>{current_text}",
+        f"🎭 <b>Выберите стиль логотипа:</b>{current_text}",
         reply_markup=style_kb,
         parse_mode="HTML"
     )
@@ -233,9 +297,19 @@ async def back_to_menu(message: Message):
 async def save_style(message: Message):
     user_style[message.from_user.id] = message.text
     
+    style_hints = {
+        "Minimalism": "чистые линии, минимум деталей",
+        "Abstract": "абстрактные формы, уникально",
+        "Vintage": "ретро-стиль, винтажные элементы",
+        "Cyberpunk": "неоновые цвета, футуризм",
+        "Eco": "природные мотивы, зелёные тона",
+        "Luxury": "золотые акценты, элегантность"
+    }
+    
     await message.answer(
-        f"✅ Стиль <b>{message.text}</b> сохранен!\n\n"
-        f"Теперь нажмите 'Создать логотип' и опишите идею.",
+        f"✅ Стиль <b>{message.text}</b> сохранен!\n"
+        f"🎨 Характеристика: {style_hints.get(message.text, '')}\n\n"
+        f"✨ Теперь нажмите 'Создать логотип' и опишите идею.",
         parse_mode="HTML",
         reply_markup=main_kb
     )
@@ -247,23 +321,25 @@ async def ask_idea(message: Message):
     style = user_style.get(message.from_user.id, "Minimalism")
     
     await message.answer(
-        f"🎨 <b>Опишите идею логотипа</b>\n\n"
-        f"🎭 Стиль: <b>{style}</b>\n\n"
-        f"📝 Напишите подробно:\n"
-        f"• Что изобразить?\n"
-        f"• Какие цвета?\n"
-        f"• Для какой сферы?\n\n"
-        f"⏱ Генерация: 5-10 секунд\n\n"
+        f"🎨 <b>Генерация логотипа</b>\n\n"
+        f"🎭 Текущий стиль: <b>{style}</b>\n\n"
+        f"📝 <b>Опишите идею максимально подробно:</b>\n"
+        f"• Что изобразить? (объекты, символы)\n"
+        f"• Какие цвета использовать?\n"
+        f"• Для какой сферы логотип?\n\n"
+        f"⏱ <b>Время:</b> 10-20 секунд\n\n"
         f"<b>Пример:</b>\n"
-        f"логотип для IT-компании, облако и шестеренка, синие тона",
+        f"логотип для IT-компании, облако и шестеренка, сине-белые тона",
         parse_mode="HTML"
     )
 
 @dp.message(F.text)
 async def handle_message(message: Message):
+    # Игнорируем команды
     if message.text.startswith('/'):
         return
     
+    # Игнорируем кнопки
     buttons = ["🎨 Создать логотип", "🎭 Выбрать стиль", "ℹ️ Помощь", 
                "🔙 Назад", "Minimalism", "Abstract", "Vintage", 
                "Cyberpunk", "Eco", "Luxury", "💬 Чат с AI"]
@@ -272,8 +348,8 @@ async def handle_message(message: Message):
     
     style = user_style.get(message.from_user.id, "Minimalism")
     
-    # Проверка на запрос логотипа
-    logo_keywords = ["логотип", "бренд", "компания", "магазин", "кофейня", "it", "спорт"]
+    # Проверяем, похоже ли на запрос логотипа
+    logo_keywords = ["логотип", "бренд", "компания", "магазин", "кофейня", "it", "спорт", "design"]
     is_logo_request = any(keyword in message.text.lower() for keyword in logo_keywords) and len(message.text.split()) > 3
     
     if is_logo_request:
@@ -282,16 +358,22 @@ async def handle_message(message: Message):
         await chat_response(message)
 
 async def generate_logo(message: Message, style: str):
+    """Генерация логотипа"""
+    
     status_msg = await message.answer(
         f"🎨 <b>Генерация логотипа...</b>\n\n"
         f"🎭 Стиль: {style}\n"
-        f"💡 Идея: {message.text[:80]}\n\n"
-        f"⏱ Пожалуйста, подождите...",
+        f"💡 Идея: {message.text[:80]}{'...' if len(message.text) > 80 else ''}\n\n"
+        f"🔄 Используется нейросеть FLUX (Hugging Face)\n"
+        f"⏱ Пожалуйста, подождите 10-20 секунд...",
         parse_mode="HTML"
     )
     
     try:
+        # Генерируем изображение
         image_bytes = await generate_logo_image(message.text, style)
+        
+        # Отправляем результат
         photo = io.BytesIO(image_bytes)
         photo.name = "logo.png"
         
@@ -301,9 +383,11 @@ async def generate_logo(message: Message, style: str):
             photo=photo,
             caption=(
                 f"✨ <b>Логотип готов!</b>\n\n"
-                f"📝 {message.text[:150]}\n"
-                f"🎭 Стиль: {style}\n\n"
-                f"🔄 Нажмите 'Создать логотип' для новой генерации"
+                f"📝 <b>Описание:</b> {message.text[:150]}\n"
+                f"🎭 <b>Стиль:</b> {style}\n\n"
+                f"🔄 <b>Хотите ещё?</b> Нажмите 'Создать логотип'\n"
+                f"🎨 <b>Сменить стиль</b> — 'Выбрать стиль'\n"
+                f"💬 <b>Пообщаться</b> — 'Чат с AI'"
             ),
             parse_mode="HTML"
         )
@@ -312,15 +396,32 @@ async def generate_logo(message: Message, style: str):
         
     except Exception as e:
         await status_msg.delete()
-        await message.answer(
-            f"❌ <b>Ошибка</b>\n\n"
-            f"<code>{str(e)[:150]}</code>\n\n"
-            f"Попробуйте другое описание.",
-            parse_mode="HTML"
-        )
-        logger.error(f"Generation error: {e}")
+        error_msg = str(e)
+        
+        if "503" in error_msg or "загружается" in error_msg:
+            await message.answer(
+                "⏳ <b>Модель загружается</b>\n\n"
+                "Первый запрос может занять до 30 секунд.\n"
+                "Пожалуйста, попробуйте еще раз через 10 секунд.",
+                parse_mode="HTML"
+            )
+        else:
+            await message.answer(
+                f"❌ <b>Ошибка генерации</b>\n\n"
+                f"<code>{error_msg[:200]}</code>\n\n"
+                f"💡 <b>Что делать?</b>\n"
+                f"• Сделайте описание более конкретным\n"
+                f"• Попробуйте другой стиль\n"
+                f"• Используйте 5-15 слов\n\n"
+                f"Попробуйте снова через минуту.",
+                parse_mode="HTML"
+            )
+        
+        logger.error(f"❌ Generation error for user {message.from_user.id}: {e}")
 
 async def chat_response(message: Message):
+    """Ответ в режиме чата"""
+    
     status_msg = await message.answer("🤔 Думаю...")
     
     try:
@@ -328,6 +429,7 @@ async def chat_response(message: Message):
         
         await status_msg.delete()
         
+        # Если ответ длинный, разбиваем на части
         if len(response) > 4000:
             for i in range(0, len(response), 4000):
                 await message.answer(response[i:i+4000], parse_mode="HTML")
@@ -337,30 +439,36 @@ async def chat_response(message: Message):
     except Exception as e:
         await status_msg.delete()
         await message.answer(
-            "❌ Ошибка. Попробуйте позже.",
+            "❌ <b>Ошибка</b>\n\nНе удалось получить ответ от AI.\nПопробуйте позже.",
             parse_mode="HTML"
         )
-        logger.error(f"Chat error: {e}")
+        logger.error(f"Chat error for user {message.from_user.id}: {e}")
 
 # ======================
-# ЗАПУСК
+# ЗАПУСК БОТА
 # ======================
 
 async def main():
-    print("\n" + "=" * 50)
-    print("🤖 AI LOGO BOT (DeepSeek)")
-    print("=" * 50)
-    print(f"📌 Bot Token: {BOT_TOKEN[:10]}...")
-    print(f"🔑 DeepSeek: {DEEPSEEK_API_KEY[:10]}...")
-    print("=" * 50)
-    print("🚀 Бот запущен! Нет рекламы, нет проверок.")
-    print("=" * 50 + "\n")
+    print("\n" + "=" * 60)
+    print("🤖 AI LOGO BOT v5.0 (DeepSeek + Hugging Face)")
+    print("=" * 60)
+    print(f"📌 Bot Token: {BOT_TOKEN[:15]}... OK")
+    print(f"🔑 DeepSeek Key: {DEEPSEEK_API_KEY[:15]}... OK")
+    print(f"🤗 Hugging Face Token: {HUGGINGFACE_TOKEN[:15]}... OK")
+    print("=" * 60)
+    print("🚀 Бот запускается...")
+    print("🎨 Модель: FLUX.1-schnell (Hugging Face)")
+    print("💬 Чат: DeepSeek AI")
+    print("💰 Полностью бесплатно!")
+    print("=" * 60 + "\n")
     
     try:
         await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook cleared")
+        logger.info("Bot is ready! Starting polling...")
         await dp.start_polling(bot)
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Fatal error in main: {e}")
         raise
     finally:
         await bot.session.close()
@@ -369,7 +477,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Бот остановлен")
+        print("\n👋 Bot stopped by user")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"❌ Fatal error: {e}")
         sys.exit(1)
