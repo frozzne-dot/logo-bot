@@ -54,30 +54,70 @@ style_kb = ReplyKeyboardMarkup(
 )
 
 # ======================
-# ГЕНЕРАЦИЯ ЧЕРЕЗ HUGGING FACE (БЕСПЛАТНО)
+# ГЕНЕРАЦИЯ ЧЕРЕЗ PRODIA (БЕСПЛАТНО, СТАБИЛЬНО)
 # ======================
 
-async def generate_logo(prompt: str, style: str) -> bytes:
-    """Генерация логотипа через Hugging Face FLUX модель"""
+async def generate_logo_prodia(prompt: str, style: str) -> bytes:
+    """Генерация логотипа через Prodia API (бесплатно!)"""
     
-    full_prompt = f"Professional {style} style logo: {prompt}. Clean vector, white background, no text"
+    full_prompt = f"Professional {style} style logo design: {prompt}. Clean vector graphics, high quality, suitable for branding, white background, no text."
     
-    # Hugging Face Inference API - бесплатно
-    API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    # Prodia использует Stability AI модели
+    # Модель sd-3.5 даёт отличные результаты для логотипов
+    api_url = "https://api.prodia.com/v1/sd/generate"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-Prodia-Key": "free"  # Бесплатный доступ
+    }
+    
+    payload = {
+        "model": "sd-3.5-large.safetensors",
+        "prompt": full_prompt,
+        "negative_prompt": "text, letters, words, watermark, low quality, blurry, ugly",
+        "steps": 30,
+        "cfg_scale": 7,
+        "width": 1024,
+        "height": 1024,
+        "sampler": "euler_a"
+    }
     
     async with aiohttp.ClientSession() as session:
-        async with session.post(
-            API_URL,
-            headers={"Content-Type": "application/json"},
-            json={"inputs": full_prompt},
-            timeout=aiohttp.ClientTimeout(total=60)
-        ) as response:
-            if response.status == 200:
-                return await response.read()
-            elif response.status == 503:
-                raise Exception("Модель загружается, попробуйте через 5 секунд")
-            else:
-                raise Exception(f"Ошибка {response.status}")
+        # Запускаем генерацию
+        async with session.post(api_url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise Exception(f"Prodia error {response.status}: {error_text}")
+            
+            job_data = await response.json()
+            job_id = job_data.get("job")
+            
+            if not job_id:
+                raise Exception("No job ID returned")
+        
+        # Ждём результат с ретраями
+        for attempt in range(30):
+            await asyncio.sleep(1.5)
+            
+            async with session.get(f"https://api.prodia.com/v1/job/{job_id}") as status_response:
+                if status_response.status == 200:
+                    status_data = await status_response.json()
+                    status = status_data.get("status")
+                    
+                    if status == "succeeded":
+                        image_url = status_data.get("imageUrl")
+                        if image_url:
+                            # Скачиваем изображение
+                            async with session.get(image_url) as img_response:
+                                if img_response.status == 200:
+                                    return await img_response.read()
+                                else:
+                                    raise Exception("Failed to download generated image")
+                    elif status == "failed":
+                        raise Exception("Generation failed")
+                    # status == "processing" - продолжаем ждать
+        
+        raise Exception("Timeout waiting for image generation")
 
 # ======================
 # ОБРАБОТЧИКИ
@@ -87,27 +127,37 @@ async def generate_logo(prompt: str, style: str) -> bytes:
 async def start(message: Message):
     await message.answer(
         "🤖 <b>AI Logo Bot</b>\n\n"
-        "Создаю логотипы через нейросеть FLUX (Hugging Face)!\n\n"
+        "Создаю профессиональные логотипы через нейросеть Stable Diffusion 3.5!\n\n"
+        "✨ <b>Особенности:</b>\n"
+        "• Бесплатная генерация\n"
+        "• 6 стилей на выбор\n"
+        "• Высокое качество 1024×1024\n"
+        "• Без рекламы и подписок\n\n"
         "📖 <b>Как пользоваться:</b>\n"
-        "1. Выбери стиль\n"
+        "1. Выбери стиль через кнопку 'Выбрать стиль'\n"
         "2. Нажми 'Создать логотип'\n"
-        "3. Опиши идею\n\n"
-        "💡 <b>Пример:</b> логотип для кофейни с чашкой кофе",
+        "3. Подробно опиши идею\n\n"
+        "💡 <b>Пример:</b> логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона",
         reply_markup=main_kb,
         parse_mode="HTML"
     )
+    logger.info(f"User {message.from_user.id} started")
 
 @dp.message(F.text == "ℹ️ Помощь")
 async def help_command(message: Message):
     await message.answer(
         "📖 <b>Инструкция</b>\n\n"
-        "• Выбери стиль (Minimalism, Luxury и др.)\n"
-        "• Нажми 'Создать логотип'\n"
-        "• Подробно опиши идею (цвета, объекты, сфера)\n\n"
-        "✅ Хороший пример:\n"
-        "логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона\n\n"
-        "❌ Плохой пример:\n"
-        "сделай красивый логотип",
+        "• <b>Выбрать стиль</b> — установи стиль логотипа\n"
+        "• <b>Создать логотип</b> — начни генерацию\n\n"
+        "<b>Доступные стили:</b>\n"
+        "• Minimalism — минимализм (чистые линии)\n"
+        "• Abstract — абстракция (креативные формы)\n"
+        "• Vintage — винтажный (ретро-элементы)\n"
+        "• Cyberpunk — киберпанк (неон, футуризм)\n"
+        "• Eco — эко-стиль (природа, зелёные тона)\n"
+        "• Luxury — люксовый (золото, элегантность)\n\n"
+        "<b>Совет:</b> Чем подробнее описание — тем лучше результат!\n"
+        "Указывай объекты, цвета и сферу применения.",
         parse_mode="HTML"
     )
 
@@ -129,6 +179,7 @@ async def save_style(message: Message):
         parse_mode="HTML",
         reply_markup=main_kb
     )
+    logger.info(f"User {message.from_user.id} set style: {message.text}")
 
 @dp.message(F.text == "🎨 Создать логотип")
 async def ask_idea(message: Message):
@@ -136,9 +187,13 @@ async def ask_idea(message: Message):
     await message.answer(
         f"🎨 <b>Опишите идею логотипа</b>\n\n"
         f"🎭 Стиль: <b>{style}</b>\n\n"
-        f"📝 Напишите подробно: что изобразить, какие цвета, для какой сферы\n\n"
-        f"⏱ Генерация: 10-20 секунд\n\n"
-        f"<b>Пример:</b> логотип для кофейни, чашка кофе и силуэт медведя, коричневые тона",
+        f"📝 Напишите подробно:\n"
+        f"• Что изобразить? (объекты, символы)\n"
+        f"• Какие цвета использовать?\n"
+        f"• Для какой сферы логотип?\n\n"
+        f"⏱ Генерация: 10-30 секунд\n\n"
+        f"<b>Пример:</b>\n"
+        f"логотип для кофейни, чашка кофе и силуэт медведя, коричневые и бежевые тона",
         parse_mode="HTML"
     )
 
@@ -152,53 +207,106 @@ async def handle_message(message: Message):
     if message.text in buttons:
         return
     
+    # Проверка длины описания
     if len(message.text.split()) < 3:
-        await message.answer("❌ Слишком короткое описание. Напишите подробнее (3+ слов).", parse_mode="HTML")
+        await message.answer(
+            "❌ <b>Слишком короткое описание</b>\n\n"
+            "Напишите подробнее (минимум 3 слова).\n\n"
+            "✅ Хороший пример:\n"
+            "«логотип для кофейни с чашкой кофе и медведем»",
+            parse_mode="HTML"
+        )
         return
     
     style = user_style.get(message.from_user.id, "Minimalism")
     
-    status = await message.answer(f"🎨 Генерация логотипа...\n\nСтиль: {style}\n⏱ Подождите 10-20 секунд", parse_mode="HTML")
+    status_msg = await message.answer(
+        f"🎨 <b>Генерация логотипа...</b>\n\n"
+        f"🎭 Стиль: {style}\n"
+        f"💡 Идея: {message.text[:80]}{'...' if len(message.text) > 80 else ''}\n\n"
+        f"🔄 Используется Stable Diffusion 3.5\n"
+        f"⏱ Процесс занимает 10-30 секунд, пожалуйста, подождите...",
+        parse_mode="HTML"
+    )
     
     try:
-        img_bytes = await generate_logo(message.text, style)
+        img_bytes = await generate_logo_prodia(message.text, style)
         photo = io.BytesIO(img_bytes)
         photo.name = "logo.png"
         
-        await status.delete()
+        await status_msg.delete()
+        
         await message.answer_photo(
             photo=photo,
-            caption=f"✨ <b>Логотип готов!</b>\n\n📝 {message.text[:150]}\n🎭 Стиль: {style}",
+            caption=(
+                f"✨ <b>Логотип готов!</b>\n\n"
+                f"📝 <b>Описание:</b> {message.text[:150]}\n"
+                f"🎭 <b>Стиль:</b> {style}\n\n"
+                f"🔄 Чтобы создать ещё — нажми 'Создать логотип'\n"
+                f"🎨 Сменить стиль — 'Выбрать стиль'"
+            ),
             parse_mode="HTML"
         )
-        logger.info(f"✅ Logo for {message.from_user.id}")
+        
+        logger.info(f"✅ Logo generated for user {message.from_user.id}")
         
     except Exception as e:
-        await status.delete()
-        error = str(e)
-        if "503" in error:
-            await message.answer("⏳ Модель загружается, попробуйте ещё раз через 10 секунд", parse_mode="HTML")
+        await status_msg.delete()
+        error_str = str(e)
+        
+        if "403" in error_str or "unauthorized" in error_str.lower():
+            await message.answer(
+                "⚠️ <b>Лимит генераций временно исчерпан</b>\n\n"
+                "Пожалуйста, подождите 1-2 минуты и попробуйте снова.\n"
+                "Бесплатный тариф Prodia имеет небольшие ограничения.\n\n"
+                "Совет: сделайте паузу между запросами.",
+                parse_mode="HTML"
+            )
         else:
-            await message.answer(f"❌ Ошибка: {error[:100]}\n\nПопробуйте другое описание.", parse_mode="HTML")
-        logger.error(f"Error: {e}")
+            await message.answer(
+                f"❌ <b>Ошибка генерации</b>\n\n"
+                f"<code>{error_str[:150]}</code>\n\n"
+                f"💡 <b>Советы:</b>\n"
+                f"• Сделайте описание более конкретным\n"
+                f"• Попробуйте другой стиль\n"
+                f"• Используйте 5-15 слов\n\n"
+                f"Попробуйте снова через минуту.",
+                parse_mode="HTML"
+            )
+        
+        logger.error(f"❌ Generation error for user {message.from_user.id}: {e}")
 
 # ======================
 # ЗАПУСК
 # ======================
 
 async def main():
-    print("\n" + "=" * 50)
-    print("🤖 LOGO BOT (Hugging Face FLUX)")
-    print("=" * 50)
-    print(f"📌 Bot Token: {BOT_TOKEN[:10]}...")
-    print("🚀 Бот запущен!")
-    print("=" * 50 + "\n")
+    print("\n" + "=" * 60)
+    print("🤖 AI LOGO BOT (Prodia API)")
+    print("=" * 60)
+    print(f"📌 Bot Token: {BOT_TOKEN[:15]}... OK")
+    print("=" * 60)
+    print("🚀 Бот запускается...")
+    print("🎨 Модель: Stable Diffusion 3.5")
+    print("💰 Бесплатно! (Prodia API)")
+    print("=" * 60 + "\n")
     
     try:
         await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook cleared")
+        logger.info("Bot is ready! Starting polling...")
         await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        raise
     finally:
         await bot.session.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Бот остановлен")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)
