@@ -5,14 +5,12 @@ import sys
 import io
 import aiohttp
 import urllib.parse
-import random
-import json
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
 # ======================
-# НАСТРОЙКА ЛОГИРОВАНИЯ
+# НАСТРОЙКА
 # ======================
 
 logging.basicConfig(
@@ -20,10 +18,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# ======================
-# ЧТЕНИЕ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
-# ======================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -36,13 +30,8 @@ if not BOT_TOKEN:
 
 logger.info("✅ BOT_TOKEN загружен успешно")
 
-# ======================
-# ИНИЦИАЛИЗАЦИЯ БОТА
-# ======================
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
 user_style = {}
 
 # ======================
@@ -70,11 +59,11 @@ style_kb = ReplyKeyboardMarkup(
 )
 
 # ======================
-# ФУНКЦИЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ (БЕСПЛАТНО, БЕЗ ТОКЕНА)
+# ФУНКЦИЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ
 # ======================
 
-async def generate_logo_image_free(prompt: str, style: str) -> bytes:
-    """Генерация логотипа через бесплатный API Pollinations (не требует ключа)"""
+async def generate_logo_image(prompt: str, style: str) -> bytes:
+    """Генерация логотипа через бесплатный API"""
     
     full_prompt = (
         f"Professional {style} style logo design: {prompt}. "
@@ -92,39 +81,24 @@ async def generate_logo_image_free(prompt: str, style: str) -> bytes:
                 raise Exception(f"Ошибка {response.status}")
 
 # ======================
-# ФУНКЦИЯ БЕСПЛАТНОГО ЧАТА (БЕЗ API КЛЮЧА)
+# ПРОСТОЙ БЕСПЛАТНЫЙ ЧАТ
 # ======================
 
-async def free_chat(message_text: str) -> str:
+async def simple_chat(message_text: str) -> str:
     """Простой чат-бот без API ключей"""
     
     text_lower = message_text.lower()
     
-    # Простые ответы для демонстрации
-    if any(word in text_lower for word in ["привет", "здравствуй", "hi", "hello"]):
-        return "👋 Привет! Я бот для создания логотипов. Нажми 'Создать логотип' и опиши свою идею!"
-    
-    elif any(word in text_lower for word in ["как дела", "как ты", "how are you"]):
-        return "У меня всё отлично! Готов создавать логотипы для тебя. А у тебя как?"
-    
-    elif any(word in text_lower for word in ["спасибо", "thanks"]):
+    if any(w in text_lower for w in ["привет", "здравствуй", "hi"]):
+        return "👋 Привет! Я бот для создания логотипов. Нажми 'Создать логотип' и опиши идею!"
+    elif any(w in text_lower for w in ["как дела", "как ты"]):
+        return "У меня всё отлично! Готов создавать логотипы. А у тебя как?"
+    elif any(w in text_lower for w in ["спасибо", "thanks"]):
         return "Пожалуйста! Рад помочь 😊"
-    
-    elif any(word in text_lower for word in ["логотип", "создай", "сделай"]):
-        return "Чтобы создать логотип, нажми кнопку '🎨 Создать логотип' и подробно опиши, что нужно изобразить, какие цвета и для какой сферы."
-    
-    elif any(word in text_lower for word in ["стиль", "стили"]):
-        return "Доступные стили: Minimalism, Abstract, Vintage, Cyberpunk, Eco, Luxury. Выбери нужный через кнопку 'Выбрать стиль'."
-    
+    elif any(w in text_lower for w in ["логотип", "создай"]):
+        return "Чтобы создать логотип: выбери стиль → нажми 'Создать логотип' → подробно опиши идею (цвета, объекты, сферу)."
     else:
-        return (
-            f"Я понял: «{message_text[:100]}»\n\n"
-            f"Чтобы создать логотип:\n"
-            f"1. Выбери стиль через кнопку 'Выбрать стиль'\n"
-            f"2. Нажми 'Создать логотип'\n"
-            f"3. Опиши идею подробно (объекты, цвета, сфера)\n\n"
-            f"Я использую нейросеть Flux — качество будет отличное!"
-        )
+        return f"Я понял: «{message_text[:100]}»\n\nЧтобы создать логотип: выбери стиль через кнопку 'Выбрать стиль', затем нажми 'Создать логотип' и опиши идею."
 
 # ======================
 # ОБРАБОТЧИКИ
@@ -134,16 +108,16 @@ async def free_chat(message_text: str) -> str:
 async def start(message: Message):
     await message.answer(
         "🤖 <b>AI Logo Bot</b>\n\n"
-        "Я создаю профессиональные логотипы бесплатно!\n\n"
+        "Я создаю профессиональные логотипы БЕСПЛАТНО!\n\n"
         "✨ <b>Особенности:</b>\n"
-        "• Генерация через нейросеть Flux\n"
+        "• Нейросеть Flux\n"
         "• 6 стилей на выбор\n"
-        "• Полностью бесплатно\n"
-        "• Без рекламы\n\n"
+        "• Абсолютно бесплатно\n"
+        "• Без рекламы и подписок\n\n"
         "📖 <b>Как пользоваться:</b>\n"
         "1. Выбери стиль\n"
         "2. Нажми 'Создать логотип'\n"
-        "3. Опиши идею\n\n"
+        "3. Опиши идею подробно\n\n"
         "💡 <b>Пример:</b> логотип для кофейни с чашкой кофе",
         reply_markup=main_kb,
         parse_mode="HTML"
@@ -159,7 +133,7 @@ async def help_command(message: Message):
         "• <b>Чат с AI</b> — просто поболтать\n\n"
         "<b>Стили:</b>\n"
         "Minimalism, Abstract, Vintage, Cyberpunk, Eco, Luxury\n\n"
-        "<b>Совет:</b> Чем подробнее опишешь идею (цвета, объекты, сфера), тем лучше получится логотип!",
+        "💡 <b>Совет:</b> Чем подробнее описание, тем лучше результат!",
         parse_mode="HTML"
     )
 
@@ -167,8 +141,8 @@ async def help_command(message: Message):
 async def chat_mode(message: Message):
     await message.answer(
         "💬 <b>Режим чата</b>\n\n"
-        "Просто напиши мне сообщение, и я отвечу.\n\n"
-        "Чтобы вернуться к созданию логотипов — нажми '🎨 Создать логотип'",
+        "Просто напиши сообщение, и я отвечу.\n\n"
+        "Чтобы вернуться к логотипам — нажми '🎨 Создать логотип'",
         parse_mode="HTML"
     )
 
@@ -202,7 +176,7 @@ async def ask_idea(message: Message):
         f"• Какие цвета?\n"
         f"• Для какой сферы?\n\n"
         f"⏱ Генерация: 5-10 секунд\n\n"
-        f"<b>Пример:</b> логотип IT-компании, облако и шестерёнка, синие тона",
+        f"<b>Пример:</b> логотип для кофейни, чашка кофе и медведь, коричневые тона",
         parse_mode="HTML"
     )
 
@@ -219,14 +193,13 @@ async def handle_message(message: Message):
     
     style = user_style.get(message.from_user.id, "Minimalism")
     
-    # Если короткое сообщение — чат, если длинное и похоже на описание логотипа — генерируем
     logo_keywords = ["логотип", "бренд", "компания", "магазин", "кофейня", "спорт"]
     is_logo = any(kw in message.text.lower() for kw in logo_keywords) and len(message.text.split()) > 3
     
     if is_logo:
         await generate_logo(message, style)
     else:
-        reply = await free_chat(message.text)
+        reply = await simple_chat(message.text)
         await message.answer(reply, parse_mode="HTML")
 
 async def generate_logo(message: Message, style: str):
@@ -239,7 +212,7 @@ async def generate_logo(message: Message, style: str):
     )
     
     try:
-        img_bytes = await generate_logo_image_free(message.text, style)
+        img_bytes = await generate_logo_image(message.text, style)
         photo = io.BytesIO(img_bytes)
         photo.name = "logo.png"
         
@@ -260,7 +233,7 @@ async def generate_logo(message: Message, style: str):
         logger.error(f"Error: {e}")
 
 # ======================
-# ЗАПУСК
+# ЗАПУСК (с защитой от конфликтов)
 # ======================
 
 async def main():
@@ -272,8 +245,22 @@ async def main():
     print("=" * 50 + "\n")
     
     try:
+        # Очищаем вебхук и сбрасываем все ожидающие обновления
         await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        
+        # Дополнительная очистка: пропускаем все старые обновления
+        updates = await bot.get_updates(offset=-1, timeout=1)
+        if updates:
+            last_id = updates[-1].update_id
+            await bot.get_updates(offset=last_id + 1)
+            logger.info(f"Dropped {len(updates)} pending updates")
+        
+        logger.info("Webhook cleared, starting polling...")
+        await dp.start_polling(bot, handle_signals=True)
+        
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        raise
     finally:
         await bot.session.close()
 
