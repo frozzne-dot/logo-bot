@@ -1,3 +1,4 @@
-Python: 3.11
-python-telegram-bot: 21.6
-Render runtime: python
+python-telegram-bot==21.6
+requests
+pillow
+python-dotenv
