@@ -3,7 +3,7 @@ import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 
-TOKEN = "ВАШ_ТОКЕН"
+TOKEN = "8533834925:AAE85r5P7AeXq9BoizEcfQXAxrk77EdVAwI"
 
 # =========================
 # DATABASE (SQLite)
