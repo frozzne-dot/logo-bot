@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: logo-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: 8675822721:AAH_1ue0TDuiZSNoI4TLaWmrpuGu80WZDiY
+        sync: false
