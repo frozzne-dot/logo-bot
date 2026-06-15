@@ -1,10 +1,18 @@
-
 import random
 import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
+import os
 
-TOKEN = "8533834925:AAE85r5P7AeXq9BoizEcfQXAxrk77EdVAwI"
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    CallbackQueryHandler
+)
+
+TOKEN = os.getenv("BOT_TOKEN")
 
 conn = sqlite3.connect("logos.db", check_same_thread=False)
 cur = conn.cursor()
@@ -55,28 +63,28 @@ def score():
     }
 
 def render_score(sc):
-    return "\\n".join([f"{k}: {'⭐'*v}{'☆'*(5-v)}" for k,v in sc.items()])
+    return "\n".join([f"{k}: {'⭐'*v}{'☆'*(5-v)}" for k,v in sc.items()])
 
 def generate(name):
     niche = detect_niche(name)
 
-    text = f"LOGO PRO BOT\\nName: {name}\\nNiche: {niche}\\n\\n"
+    text = f"LOGO PRO BOT\nName: {name}\nNiche: {niche}\n\n"
 
-    text += "CORE IDEA\\n"
-    text += f"Style: {random.choice(styles)}\\n"
-    text += f"Palette: {palette()}\\n"
-    text += f"Symbol: {random.choice(symbols)}\\n"
-    text += f"Font: {random.choice(fonts)}\\n\\n"
+    text += "CORE IDEA\n"
+    text += f"Style: {random.choice(styles)}\n"
+    text += f"Palette: {palette()}\n"
+    text += f"Symbol: {random.choice(symbols)}\n"
+    text += f"Font: {random.choice(fonts)}\n\n"
 
-    text += "10 CONCEPTS\\n"
+    text += "10 CONCEPTS\n"
     for i in range(10):
-        text += f"{i+1}) {random.choice(styles)} | {palette()} | {random.choice(symbols)} | {random.choice(fonts)}\\n"
+        text += f"{i+1}) {random.choice(styles)} | {palette()} | {random.choice(symbols)} | {random.choice(fonts)}\n"
 
-    text += "\\nSCORE\\n"
+    text += "\nSCORE\n"
     sc = score()
     text += render_score(sc)
 
-    text += f"\\nSlogan: {random.choice(slogans)}\\n"
+    text += f"\nSlogan: {random.choice(slogans)}\n"
     return text
 
 def save(user, name, data):
@@ -84,8 +92,10 @@ def save(user, name, data):
     conn.commit()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("New Logo", callback_data="new")],
-                [InlineKeyboardButton("Projects", callback_data="list")]]
+    keyboard = [
+        [InlineKeyboardButton("New Logo", callback_data="new")],
+        [InlineKeyboardButton("Projects", callback_data="list")]
+    ]
     await update.message.reply_text("LOGO BOT PRO", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -96,10 +106,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("Send name")
         context.user_data["mode"] = "gen"
 
-    if q.data == "list":
+    elif q.data == "list":
         cur.execute("SELECT name FROM projects")
         rows = cur.fetchall()
-        await q.message.reply_text("\\n".join([r[0] for r in rows]) if rows else "Empty")
+        await q.message.reply_text("\n".join([r[0] for r in rows]) if rows else "Empty")
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -109,12 +119,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = generate(text)
         save(user, text, result)
 
-        for i in range(0,len(result),4000):
+        for i in range(0, len(result), 4000):
             await update.message.reply_text(result[i:i+4000])
 
         context.user_data["mode"] = None
 
 app = ApplicationBuilder().token(TOKEN).build()
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(button))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
